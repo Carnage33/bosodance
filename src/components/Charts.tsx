@@ -139,20 +139,22 @@ export function FunnelChart({
   return (
     <div className="space-y-2">
       {data.map((d, i) => {
-        const w = Math.max(28, (d.value / max) * 100);
+        const w = Math.max(48, (d.value / max) * 100);
         const prev = i > 0 ? data[i - 1].value : d.value;
         const drop = prev ? Math.round((1 - d.value / prev) * 100) : 0;
         return (
-          <div key={d.label} className="flex flex-col items-center">
+          <div key={d.label} className="flex flex-col items-stretch sm:items-center">
             <div
-              className="flex h-9 items-center justify-between rounded-lg bg-accent/90 px-3 text-xs font-semibold text-white sm:h-10 sm:text-sm"
-              style={{ width: `${w}%`, minWidth: "40%" }}
+              className="mx-auto flex min-h-10 w-full max-w-full items-center justify-between gap-2 rounded-xl bg-accent/90 px-3 py-2 text-xs font-semibold text-white sm:h-10 sm:w-auto sm:text-sm"
+              style={{ width: `${w}%`, minWidth: "min(100%, 12rem)" }}
             >
-              <span className="truncate pr-2">{d.label}</span>
-              <span className="tabular-nums">{d.value.toLocaleString("pl-PL")}</span>
+              <span className="min-w-0 truncate">{d.label}</span>
+              <span className="shrink-0 tabular-nums">
+                {d.value.toLocaleString("pl-PL")}
+              </span>
             </div>
             {i > 0 && (
-              <span className="py-0.5 text-[10px] text-fg-muted">
+              <span className="py-0.5 text-center text-[10px] text-fg-muted">
                 −{drop}% vs krok wyżej
               </span>
             )}

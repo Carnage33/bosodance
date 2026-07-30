@@ -85,6 +85,15 @@ export default function AdminPage() {
     return () => clearTimeout(t);
   }, [toast]);
 
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [sidebarOpen]);
+
   const filtered = useMemo(() => {
     return bookings.filter((b) => {
       if (filter !== "all" && b.status !== filter) return false;
@@ -130,108 +139,193 @@ export default function AdminPage() {
   }
 
   const groups = ["Główne", "Operacje", "Finanse", "Studio"];
+  const currentTabLabel = tabs.find((t) => t.id === tab)?.label ?? "Panel";
+
+  const navContent = (
+    <nav className="flex flex-col gap-5 p-3 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+      {groups.map((group) => (
+        <div key={group}>
+          <p className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-wider text-fg-muted">
+            {group}
+          </p>
+          <div className="flex flex-col gap-0.5">
+            {tabs
+              .filter((t) => t.group === group)
+              .map((t) => {
+                const active = tab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => goTab(t.id)}
+                    className={`flex min-h-11 w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-[15px] font-medium transition ${
+                      active
+                        ? "bg-fg text-white shadow-sm"
+                        : "text-fg-secondary active:bg-[#eceef2] hover:bg-[#f4f5f7] hover:text-fg"
+                    }`}
+                  >
+                    <span>{t.label}</span>
+                    {t.id === "bookings" && stats.pending > 0 && (
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                          active ? "bg-white/20 text-white" : "bg-accent text-white"
+                        }`}
+                      >
+                        {stats.pending}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+          </div>
+        </div>
+      ))}
+    </nav>
+  );
 
   return (
-    <div className="min-h-screen bg-[#f0f2f5]">
-      {/* Top bar — sticky under demo banner */}
-      <header className="sticky top-0 z-40 border-b border-border bg-white/95 backdrop-blur-md">
-        <div className="flex h-14 items-center justify-between gap-3 px-3 sm:h-16 sm:px-6">
-          <div className="flex min-w-0 items-center gap-2.5">
+    <div className="admin-app min-h-screen min-h-dvh bg-[#f0f2f5]">
+      {/* Top bar */}
+      <header className="sticky top-0 z-40 border-b border-border bg-white/95 backdrop-blur-md supports-[backdrop-filter]:bg-white/90">
+        <div className="flex h-14 items-center justify-between gap-2 px-3 sm:h-16 sm:gap-3 sm:px-5">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-2.5">
             <button
               type="button"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border lg:hidden"
-              onClick={() => setSidebarOpen((v) => !v)}
-              aria-label="Menu"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-white text-fg active:bg-[#f4f5f7] lg:hidden"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Otwórz menu"
+              aria-expanded={sidebarOpen}
             >
               <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.75} stroke="currentColor" className="h-5 w-5">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
               </svg>
             </button>
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent text-[10px] font-bold text-white">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent text-[11px] font-bold text-white">
               bd
             </div>
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-fg">{STUDIO.name}</p>
-              <p className="truncate text-[11px] text-fg-muted">Panel administratora</p>
+              <p className="truncate text-sm font-semibold leading-tight text-fg">
+                {STUDIO.name}
+              </p>
+              <p className="truncate text-[11px] leading-tight text-fg-muted">
+                <span className="lg:hidden">{currentTabLabel}</span>
+                <span className="hidden lg:inline">Panel administratora</span>
+              </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="badge hidden bg-warning-soft text-warning sm:inline-flex">Demo</span>
-            <Link href="/" className="btn-secondary !min-h-0 !px-3 !py-1.5 text-xs">
-              <span className="sm:hidden">←</span>
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+            <span className="badge hidden bg-warning-soft text-warning sm:inline-flex">
+              Demo
+            </span>
+            <Link
+              href="/"
+              className="inline-flex h-10 items-center justify-center rounded-xl border border-border bg-white px-3 text-xs font-semibold text-fg active:bg-[#f4f5f7] sm:px-3.5"
+            >
+              <span className="sm:hidden">Strona</span>
               <span className="hidden sm:inline">Strona klienta</span>
             </Link>
           </div>
         </div>
+
+        {/* Mobile horizontal section switcher */}
+        <div className="border-t border-border lg:hidden">
+          <div className="admin-scroll flex gap-1.5 overflow-x-auto px-3 py-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {tabs.map((t) => {
+              const active = tab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => goTab(t.id)}
+                  className={`relative shrink-0 rounded-full px-3.5 py-2 text-xs font-semibold whitespace-nowrap transition ${
+                    active
+                      ? "bg-fg text-white"
+                      : "bg-[#eceef2] text-fg-secondary active:bg-[#e0e3e8]"
+                  }`}
+                >
+                  {t.label}
+                  {t.id === "bookings" && stats.pending > 0 && (
+                    <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-white">
+                      {stats.pending}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </header>
 
-      <div className="mx-auto flex max-w-[1400px] gap-0 lg:gap-4 lg:px-4 lg:py-4">
-        {sidebarOpen && (
-          <button
-            type="button"
-            className="fixed inset-0 z-40 bg-fg/30 backdrop-blur-[2px] lg:hidden"
-            aria-label="Zamknij"
-            onClick={() => setSidebarOpen(false)}
-          />
-        )}
-
-        {/* Sidebar: card with radius — floating on mobile, sticky card on desktop */}
-        <aside
-          className={`admin-scroll z-50 w-[min(17.5rem,88vw)] shrink-0 overflow-hidden border border-border bg-white transition-transform duration-200 ease-out
-            fixed bottom-4 left-3 top-[5.25rem] rounded-2xl shadow-2xl
-            lg:static lg:bottom-auto lg:left-auto lg:top-auto lg:z-0 lg:max-h-[calc(100vh-6rem)] lg:w-60 lg:translate-x-0 lg:self-start lg:sticky lg:top-[4.5rem] lg:rounded-2xl lg:shadow-sm
-            ${sidebarOpen ? "translate-x-0" : "-translate-x-[calc(100%+1.5rem)] lg:translate-x-0"}
-          `}
-        >
-          <div className="flex items-center justify-between border-b border-border px-4 py-3 lg:hidden">
-            <span className="text-sm font-semibold">Menu</span>
-            <button
-              type="button"
-              onClick={() => setSidebarOpen(false)}
-              className="rounded-lg px-2 py-1 text-sm text-fg-muted hover:bg-[#f4f5f7]"
-            >
-              Zamknij
-            </button>
+      <div className="mx-auto flex w-full max-w-[1400px] lg:gap-4 lg:px-4 lg:py-4">
+        {/* Desktop sidebar */}
+        <aside className="admin-scroll sticky top-[4.5rem] hidden max-h-[calc(100dvh-5.5rem)] w-60 shrink-0 self-start overflow-y-auto rounded-2xl border border-border bg-white shadow-sm lg:block">
+          <div className="border-b border-border px-4 py-3.5">
+            <p className="text-xs font-semibold text-fg">Nawigacja</p>
+            <p className="text-[11px] text-fg-muted">Panel studia</p>
           </div>
-          <nav className="admin-scroll max-h-full space-y-5 overflow-y-auto p-3 pb-8">
-            {groups.map((group) => (
-              <div key={group}>
-                <p className="mb-1.5 px-2.5 text-[10px] font-bold uppercase tracking-wider text-fg-muted">
-                  {group}
-                </p>
-                <div className="space-y-0.5">
-                  {tabs
-                    .filter((t) => t.group === group)
-                    .map((t) => (
-                      <button
-                        key={t.id}
-                        type="button"
-                        onClick={() => goTab(t.id)}
-                        className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm font-medium ${
-                          tab === t.id
-                            ? "bg-fg text-white shadow-sm"
-                            : "text-fg-secondary hover:bg-[#f4f5f7] hover:text-fg"
-                        }`}
-                      >
-                        {t.label}
-                        {t.id === "bookings" && stats.pending > 0 && (
-                          <span
-                            className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-                              tab === t.id ? "bg-white/20" : "bg-accent text-white"
-                            }`}
-                          >
-                            {stats.pending}
-                          </span>
-                        )}
-                      </button>
-                    ))}
-                </div>
-              </div>
-            ))}
-          </nav>
+          {navContent}
         </aside>
 
-        <main className="min-w-0 flex-1 overflow-x-hidden p-3 pb-12 sm:p-5 lg:p-2 lg:pb-10">
+        {/* Mobile drawer */}
+        <div
+          className={`fixed inset-0 z-50 lg:hidden ${sidebarOpen ? "pointer-events-auto" : "pointer-events-none"}`}
+          aria-hidden={!sidebarOpen}
+        >
+          <button
+            type="button"
+            className={`absolute inset-0 bg-fg/40 transition-opacity duration-300 ${
+              sidebarOpen ? "opacity-100" : "opacity-0"
+            }`}
+            aria-label="Zamknij menu"
+            onClick={() => setSidebarOpen(false)}
+          />
+          <aside
+            className={`absolute bottom-0 left-0 top-0 flex w-[min(20rem,86vw)] max-w-full flex-col bg-white shadow-2xl transition-transform duration-300 ease-out ${
+              sidebarOpen ? "translate-x-0" : "-translate-x-full"
+            }`}
+            style={{
+              borderTopRightRadius: 20,
+              borderBottomRightRadius: 20,
+              paddingTop: "env(safe-area-inset-top)",
+            }}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3.5">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent text-[11px] font-bold text-white">
+                  bd
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-fg">{STUDIO.name}</p>
+                  <p className="text-[11px] text-fg-muted">Menu panelu</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSidebarOpen(false)}
+                className="flex h-10 w-10 items-center justify-center rounded-xl border border-border text-fg-secondary active:bg-[#f4f5f7]"
+                aria-label="Zamknij"
+              >
+                <svg fill="none" viewBox="0 0 24 24" strokeWidth={1.75} stroke="currentColor" className="h-5 w-5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="admin-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+              {navContent}
+            </div>
+            <div className="border-t border-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+              <Link
+                href="/"
+                className="flex min-h-11 w-full items-center justify-center rounded-xl bg-[#f0f2f5] text-sm font-semibold text-fg active:bg-[#e4e6ea]"
+                onClick={() => setSidebarOpen(false)}
+              >
+                ← Wróć na stronę klienta
+              </Link>
+            </div>
+          </aside>
+        </div>
+
+        <main className="min-w-0 w-full flex-1 overflow-x-clip px-3 pb-[max(5rem,env(safe-area-inset-bottom))] pt-3 sm:px-5 sm:pb-12 sm:pt-5 lg:px-2 lg:pt-0">
           {tab === "dashboard" && (
             <Dashboard stats={stats} bookings={bookings} onGo={goTab} />
           )}
@@ -280,7 +374,7 @@ export default function AdminPage() {
       </div>
 
       {toast && (
-        <div className="fixed bottom-5 left-1/2 z-[70] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-xl bg-fg px-4 py-3 text-center text-sm font-medium text-white shadow-lg">
+        <div className="fixed bottom-[max(1.25rem,env(safe-area-inset-bottom))] left-1/2 z-[70] w-[calc(100%-1.5rem)] max-w-sm -translate-x-1/2 rounded-2xl bg-fg px-4 py-3 text-center text-sm font-medium text-white shadow-xl">
           {toast}
         </div>
       )}
@@ -300,14 +394,18 @@ function PageHead({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="mb-6 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-end sm:justify-between">
-      <div>
-        <h1 className="text-xl font-bold tracking-tight text-fg sm:text-2xl">
+    <div className="mb-4 flex flex-col gap-2.5 sm:mb-6 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
+      <div className="min-w-0">
+        <h1 className="text-lg font-bold tracking-tight text-fg sm:text-2xl">
           {title}
         </h1>
-        {desc && <p className="mt-1 text-sm text-fg-secondary">{desc}</p>}
+        {desc && (
+          <p className="mt-0.5 text-xs leading-snug text-fg-secondary sm:mt-1 sm:text-sm">
+            {desc}
+          </p>
+        )}
       </div>
-      {action}
+      {action && <div className="flex w-full shrink-0 sm:w-auto">{action}</div>}
     </div>
   );
 }
@@ -320,7 +418,9 @@ function Card({
   className?: string;
 }) {
   return (
-    <div className={`rounded-2xl border border-border bg-white p-4 shadow-sm sm:p-5 ${className}`}>
+    <div
+      className={`rounded-2xl border border-border bg-white p-3.5 shadow-sm sm:p-5 ${className}`}
+    >
       {children}
     </div>
   );
@@ -338,19 +438,21 @@ function Stat({
   accent?: boolean;
 }) {
   return (
-    <Card className="!p-3 sm:!p-5">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-fg-muted sm:text-[11px]">
+    <Card className="!p-3 sm:!p-4">
+      <p className="truncate text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
         {label}
       </p>
       <p
-        className={`mt-1.5 text-lg font-bold tracking-tight sm:mt-2 sm:text-2xl ${
+        className={`mt-1 break-words text-base font-bold tracking-tight sm:mt-1.5 sm:text-xl ${
           accent ? "text-accent" : "text-fg"
         }`}
       >
         {value}
       </p>
       {hint && (
-        <div className="mt-1 text-[11px] text-fg-muted sm:text-xs">{hint}</div>
+        <div className="mt-1 line-clamp-2 text-[10px] leading-snug text-fg-muted sm:text-xs">
+          {hint}
+        </div>
       )}
     </Card>
   );
@@ -616,7 +718,11 @@ function BookingsTab({
         title="Rezerwacje"
         desc="Statusy, płatności i szybkie akcje"
         action={
-          <button type="button" onClick={onCreateDemo} className="btn-primary !min-h-0 !py-2 text-xs">
+          <button
+            type="button"
+            onClick={onCreateDemo}
+            className="btn-primary w-full !min-h-10 !py-2.5 text-xs sm:w-auto"
+          >
             + Dodaj demo
           </button>
         }
@@ -1339,7 +1445,7 @@ function ReportsTab({
               aEl.click();
               URL.revokeObjectURL(url);
             }}
-            className="btn-secondary !min-h-0 !py-2 text-xs"
+            className="btn-secondary w-full !min-h-10 !py-2.5 text-xs sm:w-auto"
           >
             Eksport CSV
           </button>
