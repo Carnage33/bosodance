@@ -1,36 +1,48 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Bosodance · Demo systemu rezerwacji
 
-## Getting Started
+Demo technologiczne systemu rezerwacji i płatności dla **Bosodance** (Sopot).
 
-First, run the development server:
+> **Wersja demonstracyjna.** Gotowy system szyjemy na miarę — pod Państwa studio, procesy i branding.
+
+## Stack
+
+- Next.js 15 (App Router)
+- TypeScript
+- Tailwind CSS 4
+
+## Lokalnie
 
 ```bash
+cd bosodance
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+→ [http://localhost:3000](http://localhost:3000)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Co jest w środku
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Widok klienta
+- Strona główna studia (oferta, grafik, cennik)
+- Flow rezerwacji + płatność testowa
+- Panel admina (`/admin`)
 
-## Learn More
+### Panel admina
+- Pulpit, rezerwacje, klienci, grafik, frekwencja
+- Płatności, karnety, raporty z wykresami
+- Nauczyciele, wiadomości, ustawienia
 
-To learn more about Next.js, take a look at the following resources:
+Dane demo: `localStorage` + przykładowe KPI w raportach.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Deploy (Vercel)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npx vercel
+```
 
-## Deploy on Vercel
+Framework: Next.js · bez wymaganych env vars.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Edycja treści
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`src/data/classes.ts` — studio, zajęcia, cennik, grafik  
+`src/data/analytics.ts` — dane demo raportów
