@@ -6,7 +6,6 @@ import {
   classes,
   pricingPlans,
   schedule,
-  categoryLabels,
   instructors,
   rooms,
   STUDIO,
@@ -16,19 +15,30 @@ import {
   getBookings,
   getCustomers,
   getStats,
-  updateBooking,
+  getClasses,
+  getPlans,
   addBooking,
+  updateBooking,
+  resetAllData,
 } from "@/lib/store";
-import type { Booking, BookingStatus, PaymentStatus } from "@/types";
-import { analyticsDemo, pctChange } from "@/data/analytics";
+import type {
+  Booking,
+  BookingStatus,
+  DanceClass,
+  PaymentStatus,
+  PricingPlan,
+} from "@/types";
+import { buildAnalytics } from "@/lib/analytics-real";
 import {
   BarChart,
   HorizontalBars,
   ShareBar,
   FunnelChart,
-  DeltaBadge,
   MiniSparkline,
 } from "@/components/Charts";
+import { CustomersTab as CustomersTabView } from "./tabs/CustomersTab";
+import { ClassesTab as ClassesTabView } from "./tabs/ClassesTab";
+import { BookingsTab as BookingsTabView } from "./tabs/BookingsTab";
 
 type Tab =
   | "dashboard"
@@ -65,6 +75,8 @@ export default function AdminPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [stats, setStats] = useState(getStats());
   const [customers, setCustomers] = useState(getCustomers());
+  const [catalog, setCatalog] = useState<DanceClass[]>([]);
+  const [plans, setPlans] = useState<PricingPlan[]>([]);
   const [filter, setFilter] = useState<"all" | BookingStatus>("all");
   const [query, setQuery] = useState("");
   const [toast, setToast] = useState<string | null>(null);
@@ -73,6 +85,8 @@ export default function AdminPage() {
     setBookings(getBookings());
     setStats(getStats());
     setCustomers(getCustomers());
+    setCatalog(getClasses());
+    setPlans(getPlans());
   }, []);
 
   useEffect(() => {
@@ -115,23 +129,6 @@ export default function AdminPage() {
     setToast(msg);
   }
 
-  function setStatus(id: string, status: BookingStatus) {
-    updateBooking(id, { status });
-    refresh();
-    notify(
-      status === "confirmed"
-        ? "Potwierdzono"
-        : status === "cancelled"
-          ? "Anulowano"
-          : "Zaktualizowano status"
-    );
-  }
-
-  function setPayment(id: string, paymentStatus: PaymentStatus) {
-    updateBooking(id, { paymentStatus });
-    refresh();
-    notify("Płatność zaktualizowana");
-  }
 
   function goTab(id: Tab) {
     setTab(id);
@@ -327,21 +324,24 @@ export default function AdminPage() {
 
         <main className="min-w-0 w-full flex-1 overflow-x-clip px-3 pb-[max(5rem,env(safe-area-inset-bottom))] pt-3 sm:px-5 sm:pb-12 sm:pt-5 lg:px-2 lg:pt-0">
           {tab === "dashboard" && (
-            <Dashboard stats={stats} bookings={bookings} onGo={goTab} />
+            <Dashboard stats={stats} bookings={bookings} catalog={catalog} onGo={goTab} />
           )}
           {tab === "bookings" && (
-            <BookingsTab
+            <BookingsTabView
               bookings={filtered}
+              catalog={catalog}
+              plans={plans}
               filter={filter}
               setFilter={setFilter}
               query={query}
               setQuery={setQuery}
-              setStatus={setStatus}
-              setPayment={setPayment}
+              onChange={refresh}
+              notify={notify}
               onCreateDemo={() => {
+                const first = catalog[0]?.id || "tango-p1";
                 addBooking({
-                  classId: "tango-p1",
-                  planId: "single",
+                  classId: first,
+                  planId: plans[0]?.id || "single",
                   customerName: "Gość Demo",
                   customerEmail: "gosc@demo.pl",
                   customerPhone: "+48 600 000 001",
@@ -349,14 +349,20 @@ export default function AdminPage() {
                   time: "18:00",
                   status: "pending",
                   paymentStatus: "unpaid",
-                  amount: 60,
+                  amount: plans[0]?.price || 60,
                 });
                 refresh();
                 notify("Dodano rezerwację demo");
               }}
             />
           )}
-          {tab === "customers" && <CustomersTab customers={customers} />}
+          {tab === "customers" && (
+            <CustomersTabView
+              customers={customers}
+              onChange={refresh}
+              notify={notify}
+            />
+          )}
           {tab === "schedule" && <ScheduleTab />}
           {tab === "attendance" && (
             <AttendanceTab bookings={bookings} notify={notify} />
@@ -365,11 +371,19 @@ export default function AdminPage() {
             <PaymentsTab bookings={bookings} revenue={stats.revenue} />
           )}
           {tab === "passes" && <PassesTab customers={customers} />}
-          {tab === "classes" && <ClassesTab />}
+          {tab === "classes" && (
+            <ClassesTabView
+              catalog={catalog}
+              onChange={refresh}
+              notify={notify}
+            />
+          )}
           {tab === "instructors" && <InstructorsTab />}
           {tab === "messages" && <MessagesTab notify={notify} />}
-          {tab === "reports" && <ReportsTab stats={stats} bookings={bookings} />}
-          {tab === "settings" && <SettingsTab notify={notify} />}
+          {tab === "reports" && (
+            <ReportsTab stats={stats} bookings={bookings} catalog={catalog} plans={plans} />
+          )}
+          {tab === "settings" && <SettingsTab notify={notify} onReset={() => { resetAllData(); refresh(); notify("Przywrócono dane demo"); }} />}
         </main>
       </div>
 
@@ -490,119 +504,82 @@ function PaymentBadge({ status }: { status: PaymentStatus }) {
   return <span className={`badge ${map[status]}`}>{labels[status]}</span>;
 }
 
-function ActionBtn({
-  children,
-  onClick,
-  tone = "neutral",
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-  tone?: "green" | "red" | "blue" | "neutral";
-}) {
-  const tones = {
-    green: "bg-success-soft text-success hover:opacity-80",
-    red: "bg-accent-soft text-accent hover:opacity-80",
-    blue: "bg-info-soft text-info hover:opacity-80",
-    neutral: "bg-[#f0f2f5] text-fg-secondary hover:bg-[#e6e8ec]",
-  };
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold ${tones[tone]}`}
-    >
-      {children}
-    </button>
-  );
-}
-
 /* ─── Dashboard ─── */
 
 function Dashboard({
   stats,
   bookings,
+  catalog,
   onGo,
 }: {
   stats: ReturnType<typeof getStats>;
   bookings: Booking[];
+  catalog: DanceClass[];
   onGo: (t: Tab) => void;
 }) {
-  const recent = bookings.slice(0, 5);
-  const a = analyticsDemo;
-  const revDelta = pctChange(a.kpis.revenueMonth, a.kpis.revenuePrevMonth);
+  const recent = bookings.slice(0, 6);
+  const a = useMemo(
+    () => buildAnalytics(bookings, catalog),
+    [bookings, catalog]
+  );
 
   return (
     <div>
       <PageHead
         title="Pulpit"
-        desc={`${a.periodLabel} · dane przykładowe + lokalne rezerwacje`}
+        desc="Statystyki z realnych rezerwacji w tej przeglądarce"
       />
 
       <div className="grid grid-cols-2 gap-2.5 sm:gap-3 xl:grid-cols-4">
         <Stat
-          label="Przychód (mies.)"
-          value={`${a.kpis.revenueMonth.toLocaleString("pl-PL")} zł`}
-          hint={
-            <span className="inline-flex items-center gap-1.5">
-              <DeltaBadge value={revDelta} /> vs poprz. mies.
-            </span>
-          }
+          label="Przychód"
+          value={`${a.revenue.toLocaleString("pl-PL")} zł`}
+          hint={`${a.paidCount} opłaconych · śr. ${a.avgTicket} zł`}
           accent
         />
         <Stat
-          label="Śr. koszyk"
-          value={`${a.kpis.avgTicket} zł`}
-          hint={`${a.kpis.conversionRate}% konwersji płatności`}
-        />
-        <Stat
-          label="Nowi klienci"
-          value={String(a.kpis.newCustomers)}
-          hint={`${a.kpis.returningRate}% wracających`}
-        />
-        <Stat
-          label="Obłożenie"
-          value={`${a.kpis.occupancyAvg}%`}
-          hint={`No-show ${a.kpis.noShowRate}% · anul. ${a.kpis.cancelRate}%`}
-        />
-      </div>
-
-      <div className="mt-3 grid grid-cols-2 gap-2.5 sm:mt-4 sm:gap-3 lg:grid-cols-4">
-        <Stat label="Aktywne karnety" value={String(a.kpis.activePasses)} hint={`${a.kpis.openPasses} OPEN`} />
-        <Stat label="Lista rezerwowa" value={String(a.kpis.waitlist)} hint="osób czeka" />
-        <Stat label="Zajęcia (30 dni)" value={String(a.kpis.classesHeld)} hint="przeprowadzonych" />
-        <Stat
-          label="Lokalne rezerwacje"
+          label="Rezerwacje"
           value={String(stats.totalBookings)}
-          hint={`${stats.pending} oczekuje · sesja przeglądarki`}
+          hint={`${stats.confirmed} potw. · ${stats.pending} czeka`}
+        />
+        <Stat
+          label="Klienci"
+          value={String(stats.customers)}
+          hint={`${a.paidRate}% opłaconych rez.`}
+        />
+        <Stat
+          label="Konwersja statusów"
+          value={`${stats.occupancy}%`}
+          hint={`Anul. ${a.cancelRate}%`}
         />
       </div>
 
-      <div className="mt-4 grid gap-3 sm:gap-4 lg:grid-cols-5">
+      <div className="mt-3 grid gap-3 sm:mt-4 sm:gap-4 lg:grid-cols-5">
         <Card className="lg:col-span-3">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold text-fg">Przychód w tygodniu</h2>
-            <span className="text-xs text-fg-muted">PLN · demo</span>
+            <h2 className="text-sm font-semibold text-fg">Przychód 7 dni (wg dnia tyg.)</h2>
+            <MiniSparkline values={a.revenueDaily.map((d) => d.value)} />
           </div>
           <BarChart data={a.weekRevenue} height={150} />
         </Card>
-
         <Card className="lg:col-span-2">
           <h2 className="text-sm font-semibold text-fg">Udział kategorii</h2>
           <div className="mt-4">
-            <ShareBar data={a.byCategory} />
+            {a.byCategory.length > 0 ? (
+              <ShareBar data={a.byCategory} />
+            ) : (
+              <p className="text-sm text-fg-muted">Brak danych</p>
+            )}
           </div>
         </Card>
       </div>
 
       <div className="mt-3 grid gap-3 sm:mt-4 sm:gap-4 lg:grid-cols-2">
         <Card>
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-fg">14 dni — przychód</h2>
-            <MiniSparkline values={a.revenueDaily.map((d) => d.value)} />
-          </div>
+          <h2 className="mb-3 text-sm font-semibold text-fg">14 dni — przychód</h2>
           <BarChart
             data={a.revenueDaily.map((d) => ({
-              label: d.label.slice(0, 5),
+              label: d.label,
               value: d.value,
             }))}
             height={120}
@@ -611,10 +588,8 @@ function Dashboard({
           />
         </Card>
         <Card>
-          <h2 className="mb-3 text-sm font-semibold text-fg">
-            Godziny szczytu (rezerwacje)
-          </h2>
-          <BarChart data={a.byHour} height={120} color="#6a4c93" />
+          <h2 className="mb-3 text-sm font-semibold text-fg">Status płatności</h2>
+          <BarChart data={a.paymentBars} height={120} />
         </Card>
       </div>
 
@@ -631,8 +606,11 @@ function Dashboard({
             </button>
           </div>
           <ul className="divide-y divide-border">
+            {recent.length === 0 && (
+              <li className="py-6 text-center text-sm text-fg-muted">Brak rezerwacji</li>
+            )}
             {recent.map((b) => {
-              const cls = classes.find((c) => c.id === b.classId);
+              const cls = catalog.find((c) => c.id === b.classId);
               return (
                 <li
                   key={b.id}
@@ -643,7 +621,7 @@ function Dashboard({
                       {b.customerName}
                     </p>
                     <p className="truncate text-xs text-fg-muted">
-                      {cls?.name} · {b.date}
+                      {cls?.name ?? b.classId} · {b.date}
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1">
@@ -657,16 +635,15 @@ function Dashboard({
             })}
           </ul>
         </Card>
-
         <Card className="lg:col-span-2">
           <h2 className="text-sm font-semibold text-fg">Szybkie akcje</h2>
           <div className="mt-4 space-y-2">
             {(
               [
                 ["bookings", "Rezerwacje"],
-                ["attendance", "Frekwencja"],
-                ["reports", "Pełne raporty"],
-                ["messages", "Wiadomości"],
+                ["customers", "Klienci"],
+                ["classes", "Zajęcia / usługi"],
+                ["reports", "Raporty (realne dane)"],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -683,9 +660,9 @@ function Dashboard({
         </Card>
       </div>
 
-      <div className="mt-4 rounded-2xl border border-warning/20 bg-warning-soft px-4 py-3 text-xs leading-relaxed text-warning sm:text-sm">
-        <strong>Wersja demo.</strong> Wykresy i KPI to dane przykładowe do
-        prezentacji. Lokalne rezerwacje z formularza widać w tabeli powyżej.
+      <div className="mt-4 rounded-2xl border border-border bg-white px-4 py-3 text-xs leading-relaxed text-fg-secondary sm:text-sm">
+        <strong className="text-fg">Dane na żywo.</strong> Wykresy liczą się z
+        rezerwacji w localStorage. Edytuj lub usuwaj wpisy — statystyki odświeżą się od razu.
       </div>
     </div>
   );
@@ -693,264 +670,7 @@ function Dashboard({
 
 /* ─── Bookings ─── */
 
-function BookingsTab({
-  bookings,
-  filter,
-  setFilter,
-  query,
-  setQuery,
-  setStatus,
-  setPayment,
-  onCreateDemo,
-}: {
-  bookings: Booking[];
-  filter: "all" | BookingStatus;
-  setFilter: (f: "all" | BookingStatus) => void;
-  query: string;
-  setQuery: (q: string) => void;
-  setStatus: (id: string, s: BookingStatus) => void;
-  setPayment: (id: string, p: PaymentStatus) => void;
-  onCreateDemo: () => void;
-}) {
-  return (
-    <div>
-      <PageHead
-        title="Rezerwacje"
-        desc="Statusy, płatności i szybkie akcje"
-        action={
-          <button
-            type="button"
-            onClick={onCreateDemo}
-            className="btn-primary w-full !min-h-10 !py-2.5 text-xs sm:w-auto"
-          >
-            + Dodaj demo
-          </button>
-        }
-      />
-
-      <Card className="mb-4 !p-3 sm:!p-4">
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Szukaj: imię, e-mail, ID…"
-          className="field mb-3"
-        />
-        <div className="flex flex-wrap gap-1.5">
-          {(
-            [
-              ["all", "Wszystkie"],
-              ["pending", "Oczekujące"],
-              ["confirmed", "Potwierdzone"],
-              ["cancelled", "Anulowane"],
-              ["completed", "Zakończone"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setFilter(id)}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
-                filter === id
-                  ? "bg-fg text-white"
-                  : "bg-[#f0f2f5] text-fg-secondary hover:bg-[#e6e8ec]"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </Card>
-
-      {/* Mobile */}
-      <div className="space-y-3 md:hidden">
-        {bookings.length === 0 && (
-          <Card className="py-10 text-center text-sm text-fg-muted">
-            Brak rezerwacji
-          </Card>
-        )}
-        {bookings.map((b) => {
-          const cls = classes.find((c) => c.id === b.classId);
-          return (
-            <Card key={b.id}>
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="font-semibold text-fg">{b.customerName}</p>
-                  <p className="truncate text-xs text-fg-muted">{b.customerEmail}</p>
-                </div>
-                <span className="text-sm font-bold tabular-nums">{b.amount} zł</span>
-              </div>
-              <p className="mt-2 text-sm text-fg-secondary">
-                {cls?.name} · {b.date} {b.time}
-              </p>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                <StatusBadge status={b.status} />
-                <PaymentBadge status={b.paymentStatus} />
-              </div>
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {b.status !== "confirmed" && (
-                  <ActionBtn onClick={() => setStatus(b.id, "confirmed")} tone="green">
-                    Potwierdź
-                  </ActionBtn>
-                )}
-                {b.status !== "cancelled" && (
-                  <ActionBtn onClick={() => setStatus(b.id, "cancelled")} tone="red">
-                    Anuluj
-                  </ActionBtn>
-                )}
-                {b.status === "confirmed" && (
-                  <ActionBtn onClick={() => setStatus(b.id, "completed")}>
-                    Zakończ
-                  </ActionBtn>
-                )}
-                {b.paymentStatus !== "paid" && b.paymentStatus !== "test" && (
-                  <ActionBtn onClick={() => setPayment(b.id, "paid")} tone="blue">
-                    Płatne
-                  </ActionBtn>
-                )}
-              </div>
-            </Card>
-          );
-        })}
-      </div>
-
-      {/* Desktop table */}
-      <Card className="hidden !p-0 md:block">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[780px] text-left text-sm">
-            <thead className="border-b border-border bg-[#fafbfc] text-[11px] uppercase tracking-wide text-fg-muted">
-              <tr>
-                {["Klient", "Zajęcia", "Termin", "Status", "Płatność", "Kwota", "Akcje"].map(
-                  (h) => (
-                    <th key={h} className="px-4 py-3 font-semibold">
-                      {h}
-                    </th>
-                  )
-                )}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {bookings.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-fg-muted">
-                    Brak rezerwacji
-                  </td>
-                </tr>
-              )}
-              {bookings.map((b) => {
-                const cls = classes.find((c) => c.id === b.classId);
-                const plan = pricingPlans.find((p) => p.id === b.planId);
-                return (
-                  <tr key={b.id} className="hover:bg-[#fafbfc]">
-                    <td className="px-4 py-3.5">
-                      <p className="font-medium text-fg">{b.customerName}</p>
-                      <p className="text-xs text-fg-muted">{b.customerEmail}</p>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <p className="font-medium">{cls?.name}</p>
-                      <p className="text-xs text-fg-muted">{plan?.name}</p>
-                    </td>
-                    <td className="px-4 py-3.5 tabular-nums">
-                      <p>{b.date}</p>
-                      <p className="text-xs text-fg-muted">{b.time}</p>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <StatusBadge status={b.status} />
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <PaymentBadge status={b.paymentStatus} />
-                    </td>
-                    <td className="px-4 py-3.5 font-semibold tabular-nums">
-                      {b.amount} zł
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <div className="flex flex-wrap gap-1">
-                        {b.status !== "confirmed" && (
-                          <ActionBtn onClick={() => setStatus(b.id, "confirmed")} tone="green">
-                            Potwierdź
-                          </ActionBtn>
-                        )}
-                        {b.status !== "cancelled" && (
-                          <ActionBtn onClick={() => setStatus(b.id, "cancelled")} tone="red">
-                            Anuluj
-                          </ActionBtn>
-                        )}
-                        {b.status === "confirmed" && (
-                          <ActionBtn onClick={() => setStatus(b.id, "completed")}>
-                            Zakończ
-                          </ActionBtn>
-                        )}
-                        {b.paymentStatus !== "paid" && b.paymentStatus !== "test" && (
-                          <ActionBtn onClick={() => setPayment(b.id, "paid")} tone="blue">
-                            Płatne
-                          </ActionBtn>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-    </div>
-  );
-}
-
 /* ─── Customers ─── */
-
-function CustomersTab({
-  customers,
-}: {
-  customers: ReturnType<typeof getCustomers>;
-}) {
-  const [q, setQ] = useState("");
-  const list = customers.filter(
-    (c) =>
-      !q ||
-      c.name.toLowerCase().includes(q.toLowerCase()) ||
-      c.email.toLowerCase().includes(q.toLowerCase())
-  );
-
-  return (
-    <div>
-      <PageHead title="Klienci" desc={`${customers.length} osób w bazie demo`} />
-      <input
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Szukaj klienta…"
-        className="field mb-4 max-w-sm"
-      />
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {list.map((c) => (
-          <Card key={c.id}>
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#f0f2f5] text-xs font-bold text-fg">
-                {c.name
-                  .split(" ")
-                  .map((n) => n[0])
-                  .join("")
-                  .slice(0, 2)}
-              </div>
-              <span className="badge max-w-[50%] truncate bg-[#f0f2f5] text-fg-secondary">
-                {c.passType}
-              </span>
-            </div>
-            <h3 className="mt-3 font-semibold text-fg">{c.name}</h3>
-            <p className="truncate text-xs text-fg-muted">{c.email}</p>
-            <p className="text-xs text-fg-muted">{c.phone}</p>
-            <div className="mt-4 flex items-center justify-between border-t border-border pt-3 text-sm">
-              <span className="text-fg-muted">Wejścia</span>
-              <span className="font-bold tabular-nums">
-                {c.passEntries === 99 ? "∞ OPEN" : c.passEntries}
-              </span>
-            </div>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 /* ─── Schedule ─── */
 
@@ -1226,44 +946,6 @@ function PassesTab({
 
 /* ─── Classes ─── */
 
-function ClassesTab() {
-  const cats = Object.keys(categoryLabels);
-  return (
-    <div>
-      <PageHead title="Katalog zajęć" desc={`${classes.length} pozycji`} />
-      {cats.map((cat) => {
-        const items = classes.filter((c) => c.category === cat);
-        if (!items.length) return null;
-        return (
-          <div key={cat} className="mb-6">
-            <h2 className="mb-2 text-sm font-semibold text-fg">
-              {categoryLabels[cat]}
-            </h2>
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-              {items.map((cls) => (
-                <Card key={cls.id} className="!p-3.5">
-                  <div className="flex items-start gap-2.5">
-                    <span
-                      className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
-                      style={{ background: cls.color }}
-                    />
-                    <div>
-                      <p className="font-semibold text-fg">{cls.name}</p>
-                      <p className="text-xs text-fg-muted">
-                        {cls.level} · {cls.durationMin} min · {cls.instructor}
-                      </p>
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 /* ─── Instructors ─── */
 
 function InstructorsTab() {
@@ -1398,41 +1080,41 @@ function MessagesTab({ notify }: { notify: (m: string) => void }) {
 function ReportsTab({
   stats,
   bookings,
+  catalog,
+  plans,
 }: {
   stats: ReturnType<typeof getStats>;
   bookings: Booking[];
+  catalog: DanceClass[];
+  plans: PricingPlan[];
 }) {
-  const a = analyticsDemo;
-  const revDelta = pctChange(a.kpis.revenueMonth, a.kpis.revenuePrevMonth);
+  const a = useMemo(
+    () => buildAnalytics(bookings, catalog),
+    [bookings, catalog]
+  );
 
-  const byClassLive = useMemo(() => {
-    const map: Record<string, number> = {};
-    bookings.forEach((b) => {
-      map[b.classId] = (map[b.classId] || 0) + 1;
-    });
-    return Object.entries(map)
-      .map(([id, count]) => ({
-        label: classes.find((c) => c.id === id)?.name ?? id,
-        value: count,
-      }))
-      .sort((x, y) => y.value - x.value)
-      .slice(0, 8);
-  }, [bookings]);
+  const planName = (id: string) =>
+    plans.find((p) => p.id === id)?.name ?? id;
+
+  const byPassNamed = a.byPass.map((p) => ({
+    ...p,
+    label: planName(p.label),
+  }));
 
   return (
     <div>
       <PageHead
         title="Raporty i analityka"
-        desc={a.periodLabel}
+        desc="Wszystkie wykresy z realnych rezerwacji (localStorage)"
         action={
           <button
             type="button"
             onClick={() => {
               const rows = [
-                "id;klient;email;zajecia;kwota;status;platnosc",
+                "id;klient;email;zajecia;kwota;status;platnosc;data",
                 ...bookings.map((b) => {
-                  const cls = classes.find((c) => c.id === b.classId);
-                  return `${b.id};${b.customerName};${b.customerEmail};${cls?.name};${b.amount};${b.status};${b.paymentStatus}`;
+                  const cls = catalog.find((c) => c.id === b.classId);
+                  return `${b.id};${b.customerName};${b.customerEmail};${cls?.name};${b.amount};${b.status};${b.paymentStatus};${b.createdAt}`;
                 }),
               ].join("\n");
               const blob = new Blob([rows], {
@@ -1441,7 +1123,7 @@ function ReportsTab({
               const url = URL.createObjectURL(blob);
               const aEl = document.createElement("a");
               aEl.href = url;
-              aEl.download = "bosodance-rezerwacje-demo.csv";
+              aEl.download = "bosodance-rezerwacje.csv";
               aEl.click();
               URL.revokeObjectURL(url);
             }}
@@ -1454,75 +1136,57 @@ function ReportsTab({
 
       <div className="mb-3 grid grid-cols-2 gap-2.5 sm:mb-4 sm:gap-3 lg:grid-cols-4">
         <Stat
-          label="Przychód 30 dni"
-          value={`${a.kpis.revenueMonth.toLocaleString("pl-PL")} zł`}
-          hint={
-            <span className="inline-flex items-center gap-1.5">
-              <DeltaBadge value={revDelta} /> m/m
-            </span>
-          }
+          label="Przychód"
+          value={`${a.revenue.toLocaleString("pl-PL")} zł`}
+          hint={`${a.paidCount} płatności`}
           accent
         />
         <Stat
-          label="Rezerwacje (demo)"
-          value={String(a.monthly[a.monthly.length - 1]?.bookings ?? stats.totalBookings)}
-          hint={`Lokalnie: ${stats.totalBookings}`}
+          label="Rezerwacje"
+          value={String(stats.totalBookings)}
+          hint={`${stats.pending} oczekuje`}
         />
-        <Stat label="Konwersja" value={`${a.kpis.conversionRate}%`} hint="Start → płatność" />
+        <Stat label="Śr. koszyk" value={`${a.avgTicket} zł`} />
         <Stat
-          label="Frekwencja śr."
-          value={`${a.kpis.occupancyAvg}%`}
-          hint={`No-show ${a.kpis.noShowRate}%`}
-        />
-      </div>
-
-      <div className="mb-3 grid grid-cols-2 gap-2.5 sm:mb-4 sm:gap-3 lg:grid-cols-4">
-        <Stat label="Anulowania" value={`${a.kpis.cancelRate}%`} hint="w okresie" />
-        <Stat label="Śr. koszyk" value={`${a.kpis.avgTicket} zł`} />
-        <Stat
-          label="SMS / e-mail"
-          value={`${a.kpis.smsSent} / ${a.kpis.emailsSent}`}
-          hint="wysłane (demo)"
-        />
-        <Stat
-          label="Karnety aktywne"
-          value={String(a.kpis.activePasses)}
-          hint={`${a.kpis.openPasses} OPEN`}
+          label="Opłacone / anul."
+          value={`${a.paidRate}% / ${a.cancelRate}%`}
         />
       </div>
 
       <div className="mb-3 grid gap-3 sm:mb-4 sm:gap-4 lg:grid-cols-2">
         <Card>
           <h2 className="mb-1 text-sm font-semibold text-fg">Przychód — 8 tygodni</h2>
-          <p className="mb-4 text-xs text-fg-muted">Suma PLN / tydzień</p>
+          <p className="mb-4 text-xs text-fg-muted">Suma opłaconych rezerwacji</p>
           <BarChart data={a.revenueWeekly} height={160} color="#d41820" />
         </Card>
         <Card>
-          <h2 className="mb-1 text-sm font-semibold text-fg">Trend 6 miesięcy</h2>
-          <p className="mb-4 text-xs text-fg-muted">Przychód miesięczny</p>
+          <h2 className="mb-1 text-sm font-semibold text-fg">14 dni — przychód</h2>
+          <p className="mb-4 text-xs text-fg-muted">Dzień po dniu</p>
           <BarChart
-            data={a.monthly.map((m) => ({ label: m.label, value: m.revenue }))}
+            data={a.revenueDaily}
             height={160}
             color="#1d4e89"
+            showValues={false}
           />
-          <div className="mt-3 flex flex-wrap gap-3 border-t border-border pt-3 text-xs text-fg-muted">
-            {a.monthly.map((m) => (
-              <span key={m.label}>
-                <strong className="text-fg">{m.label}</strong> · {m.bookings} rez.
-              </span>
-            ))}
-          </div>
         </Card>
       </div>
 
       <div className="mb-3 grid gap-3 sm:mb-4 sm:gap-4 lg:grid-cols-3">
         <Card>
           <h2 className="mb-4 text-sm font-semibold text-fg">Kategorie zajęć</h2>
-          <ShareBar data={a.byCategory} />
+          {a.byCategory.length ? (
+            <ShareBar data={a.byCategory} />
+          ) : (
+            <p className="text-sm text-fg-muted">Brak danych</p>
+          )}
         </Card>
         <Card>
           <h2 className="mb-4 text-sm font-semibold text-fg">Struktura karnetów</h2>
-          <HorizontalBars data={a.byPass} unit="%" />
+          {byPassNamed.length ? (
+            <HorizontalBars data={byPassNamed} unit="%" />
+          ) : (
+            <p className="text-sm text-fg-muted">Brak danych</p>
+          )}
         </Card>
         <Card>
           <h2 className="mb-4 text-sm font-semibold text-fg">Frekwencja / dzień tyg.</h2>
@@ -1532,22 +1196,15 @@ function ReportsTab({
 
       <div className="mb-3 grid gap-3 sm:mb-4 sm:gap-4 lg:grid-cols-2">
         <Card>
-          <h2 className="mb-1 text-sm font-semibold text-fg">Lejek rezerwacji</h2>
-          <p className="mb-4 text-xs text-fg-muted">Od wejścia na stronę do płatności (demo)</p>
+          <h2 className="mb-1 text-sm font-semibold text-fg">Lejek statusów</h2>
+          <p className="mb-4 text-xs text-fg-muted">Na podstawie bieżących rezerwacji</p>
           <FunnelChart data={a.funnel} />
         </Card>
         <Card>
-          <h2 className="mb-4 text-sm font-semibold text-fg">Wykorzystanie sal</h2>
-          <HorizontalBars
-            data={a.rooms.map((r) => ({
-              label: r.name,
-              value: r.utilization,
-              color: r.utilization >= 80 ? "#d41820" : "#1d4e89",
-            }))}
-            unit="%"
-          />
-          <h2 className="mb-3 mt-6 text-sm font-semibold text-fg">Godziny szczytu</h2>
-          <BarChart data={a.byHour} height={100} color="#6a4c93" showValues={false} />
+          <h2 className="mb-4 text-sm font-semibold text-fg">Godziny utworzenia rez.</h2>
+          <BarChart data={a.byHour} height={140} color="#6a4c93" showValues={false} />
+          <h2 className="mb-3 mt-6 text-sm font-semibold text-fg">Płatności</h2>
+          <HorizontalBars data={a.paymentBars} />
         </Card>
       </div>
 
@@ -1555,7 +1212,7 @@ function ReportsTab({
         <Card className="!p-0 overflow-hidden">
           <div className="border-b border-border px-4 py-3">
             <h2 className="text-sm font-semibold text-fg">Top zajęcia</h2>
-            <p className="text-xs text-fg-muted">Dane demonstracyjne</p>
+            <p className="text-xs text-fg-muted">Wg liczby rezerwacji</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[280px] text-left text-sm">
@@ -1563,18 +1220,21 @@ function ReportsTab({
                 <tr>
                   <th className="px-4 py-2.5 font-semibold">Zajęcia</th>
                   <th className="px-4 py-2.5 font-semibold">Rez.</th>
-                  <th className="hidden px-4 py-2.5 font-semibold sm:table-cell">Obłoż.</th>
                   <th className="px-4 py-2.5 font-semibold">Przychód</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
+                {a.topClasses.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="px-4 py-8 text-center text-fg-muted">
+                      Brak danych
+                    </td>
+                  </tr>
+                )}
                 {a.topClasses.map((row) => (
-                  <tr key={row.name} className="hover:bg-[#fafbfc]">
+                  <tr key={row.id} className="hover:bg-[#fafbfc]">
                     <td className="px-4 py-2.5 font-medium text-fg">{row.name}</td>
                     <td className="px-4 py-2.5 tabular-nums">{row.bookings}</td>
-                    <td className="hidden px-4 py-2.5 tabular-nums text-fg-muted sm:table-cell">
-                      {row.occupancy}%
-                    </td>
                     <td className="px-4 py-2.5 font-semibold tabular-nums">
                       {row.revenue.toLocaleString("pl-PL")} zł
                     </td>
@@ -1587,19 +1247,22 @@ function ReportsTab({
 
         <Card className="!p-0 overflow-hidden">
           <div className="border-b border-border px-4 py-3">
-            <h2 className="text-sm font-semibold text-fg">Najwięksi klienci (demo)</h2>
-            <p className="text-xs text-fg-muted">Wydatki i wizyty w okresie</p>
+            <h2 className="text-sm font-semibold text-fg">Top klienci</h2>
+            <p className="text-xs text-fg-muted">Wydatki z rezerwacji</p>
           </div>
           <ul className="divide-y divide-border">
+            {a.topCustomers.length === 0 && (
+              <li className="px-4 py-8 text-center text-sm text-fg-muted">Brak danych</li>
+            )}
             {a.topCustomers.map((c, i) => (
-              <li key={c.name} className="flex items-center justify-between gap-3 px-4 py-3">
+              <li key={c.email + c.name} className="flex items-center justify-between gap-3 px-4 py-3">
                 <div className="flex min-w-0 items-center gap-3">
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#f0f2f5] text-xs font-bold text-fg-muted">
                     {i + 1}
                   </span>
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-fg">{c.name}</p>
-                    <p className="text-xs text-fg-muted">{c.visits} wizyt</p>
+                    <p className="truncate text-xs text-fg-muted">{c.visits} wizyt · {c.email}</p>
                   </div>
                 </div>
                 <span className="shrink-0 text-sm font-bold tabular-nums text-fg">
@@ -1611,17 +1274,20 @@ function ReportsTab({
         </Card>
       </div>
 
-      {byClassLive.length > 0 && (
+      {a.topClasses.length > 0 && (
         <Card className="mt-3 sm:mt-4">
-          <h2 className="mb-4 text-sm font-semibold text-fg">
-            Popularność — ta sesja przeglądarki
-          </h2>
-          <HorizontalBars data={byClassLive} />
+          <h2 className="mb-4 text-sm font-semibold text-fg">Popularność zajęć</h2>
+          <HorizontalBars
+            data={a.topClasses.map((c) => ({
+              label: c.name,
+              value: c.bookings,
+            }))}
+          />
         </Card>
       )}
 
       <p className="mt-4 text-center text-[11px] text-fg-muted sm:text-xs">
-        Większość wykresów to dane demonstracyjne. Eksport CSV obejmuje rezerwacje z tej przeglądarki.
+        Usuń rezerwację lub zmień status — wykresy przeliczą się automatycznie.
       </p>
     </div>
   );
@@ -1629,7 +1295,7 @@ function ReportsTab({
 
 /* ─── Settings ─── */
 
-function SettingsTab({ notify }: { notify: (m: string) => void }) {
+function SettingsTab({ notify, onReset }: { notify: (m: string) => void; onReset: () => void }) {
   const [cancelHours, setCancelHours] = useState(48);
   const [passWeeks, setPassWeeks] = useState(4);
 
@@ -1691,6 +1357,25 @@ function SettingsTab({ notify }: { notify: (m: string) => void }) {
             </button>
           </div>
         </Card>
+
+        <Card>
+          <h2 className="text-sm font-semibold text-fg">Dane demo</h2>
+          <p className="mt-2 text-sm text-fg-secondary">
+            Przywróć startowe rezerwacje, klientów, zajęcia i cennik. Usuwa lokalne zmiany.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              if (typeof window !== "undefined" && window.confirm("Przywrócić wszystkie dane demo?")) {
+                onReset();
+              }
+            }}
+            className="btn-secondary mt-4 w-full"
+          >
+            Resetuj dane demo
+          </button>
+        </Card>
+
         <Card className="lg:col-span-2">
           <h2 className="text-sm font-semibold text-fg">
             Co wchodzi w system na miarę

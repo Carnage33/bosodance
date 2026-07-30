@@ -1,16 +1,17 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
-  classes,
-  pricingPlans,
   schedule,
   DAYS,
   categoryLabels,
+  classes as seedClasses,
+  pricingPlans as seedPlans,
 } from "@/data/classes";
-import { addBooking } from "@/lib/store";
+import { addBooking, getClasses, getPlans } from "@/lib/store";
+import type { DanceClass, PricingPlan } from "@/types";
 import {
   formatPhonePL,
   formatName,
@@ -35,7 +36,7 @@ function BookingWizard() {
   const preSlot = searchParams.get("slot") ?? "";
 
   const [step, setStep] = useState<Step>(1);
-  const [classId, setClassId] = useState(preClass || classes[0].id);
+  const [classId, setClassId] = useState(preClass || seedClasses[0].id);
   const [slotId, setSlotId] = useState(preSlot);
   const [planId, setPlanId] = useState(prePlan);
   const [name, setName] = useState("");
@@ -50,6 +51,13 @@ function BookingWizard() {
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [classes, setClasses] = useState<DanceClass[]>(seedClasses);
+  const [pricingPlans, setPricingPlans] = useState<PricingPlan[]>(seedPlans);
+
+  useEffect(() => {
+    setClasses(getClasses());
+    setPricingPlans(getPlans());
+  }, []);
 
   const selectedClass = classes.find((c) => c.id === classId);
   const selectedPlan = pricingPlans.find((p) => p.id === planId);
